@@ -17,6 +17,7 @@ const SELECTOR_CHECKBOX = "input[type='checkbox'].terms";
 const SELECTOR_SUBMIT = "button[type='submit'], .submit";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
+// Arabic fallback labels when CSS selectors fail for critical actions.
 const FALLBACK_ADD_REPLY_TEXTS = [
   "أضف تعليق",
   "اضف تعليق",
@@ -330,10 +331,9 @@ async function getDraftCache() {
   ) {
     return stored;
   }
-  if (stored !== undefined) {
-    await chrome.storage.local.set({ [STORAGE_DRAFT_CACHE]: {} });
-  }
-  return {};
+  const empty = {};
+  await chrome.storage.local.set({ [STORAGE_DRAFT_CACHE]: empty });
+  return empty;
 }
 
 async function setDraftCache(cache) {
@@ -347,14 +347,9 @@ async function getCachedDraft(requestId) {
 }
 
 async function cacheDraft(requestId, draft) {
-  if (!requestId || !draft) return;
+  if (!requestId || typeof draft !== "string" || !draft.trim()) return;
   const cache = await getDraftCache();
-  const existing = cache[requestId];
-  if (
-    typeof existing === "string" &&
-    typeof draft === "string" &&
-    existing === draft
-  ) {
+  if (cache[requestId] === draft) {
     return;
   }
   await setDraftCache({ ...cache, [requestId]: draft });
@@ -543,6 +538,7 @@ function isElementVisibleNow(element) {
 
 function getFallbackCandidateText(element) {
   if (!element) return "";
+  // Prefer visible labels to match user-facing text.
   const text =
     element.innerText?.trim() || element.textContent?.trim() || "";
   const parts = [
