@@ -17,13 +17,14 @@ const WEBHOOK_PLACEHOLDERS_LOWER = WEBHOOK_PLACEHOLDERS.map((value) =>
 const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
 
 // Selectors (update as needed)
-const SELECTOR_REQUEST_LINKS = "a.request-link";
-const SELECTOR_REQUEST_TEXT = ".request-content, .topic-body, .request-details";
+const SELECTOR_REQUEST_LINKS = "table.listing_table td.details-head a.ajaxbtn";
+const SELECTOR_REQUEST_TEXT = "article.forum_post, div.card-body";
 const SELECTOR_ADD_REPLY =
-  "button.add-reply, a.add-reply, button[data-action='add-reply'], .add-comment, .reply-button";
-const SELECTOR_TEXTAREA = "textarea";
-const SELECTOR_CHECKBOX = "input[type='checkbox'].terms";
-const SELECTOR_SUBMIT = "button[type='submit'], .submit";
+  "a.c-button.c-button--primary[href='#add_comment']";
+const SELECTOR_TEXTAREA = "#commentable_form textarea[name='comment']";
+const SELECTOR_CHECKBOX = "input#confirm[name='confirm'][type='checkbox']";
+const SELECTOR_SUBMIT =
+  "button#commentable_submit.c-button.c-button--primary[type='submit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
 // Arabic fallback labels when CSS selectors fail for critical actions.
