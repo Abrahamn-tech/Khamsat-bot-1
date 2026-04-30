@@ -159,7 +159,14 @@ const uptimeInterval = setInterval(() => {
 }, 1000);
 const snapshotInterval = setInterval(refreshSnapshot, 5000);
 
-window.addEventListener("unload", () => {
+const clearIntervals = () => {
   clearInterval(uptimeInterval);
   clearInterval(snapshotInterval);
+};
+
+window.addEventListener("pagehide", clearIntervals);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    clearIntervals();
+  }
 });
