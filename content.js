@@ -323,12 +323,7 @@ async function addToStorageList(key, id) {
 async function getDraftCache() {
   const data = await chrome.storage.local.get([STORAGE_DRAFT_CACHE]);
   const stored = data[STORAGE_DRAFT_CACHE];
-  if (
-    stored &&
-    stored !== null &&
-    typeof stored === "object" &&
-    !Array.isArray(stored)
-  ) {
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
     return stored;
   }
   const empty = {};
@@ -359,7 +354,7 @@ async function clearCachedDraft(requestId) {
   if (!requestId) return;
   const cache = await getDraftCache();
   if (!Object.prototype.hasOwnProperty.call(cache, requestId)) return;
-  const { [requestId]: _removed, ...rest } = cache;
+  const { [requestId]: removedDraft, ...rest } = cache;
   await setDraftCache(rest);
 }
 
@@ -541,9 +536,13 @@ function getFallbackCandidateText(element) {
   // Prefer visible labels to match user-facing text.
   const text =
     element.innerText?.trim() || element.textContent?.trim() || "";
+  const value =
+    element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      ? element.value
+      : "";
   const parts = [
     text,
-    element.value,
+    value,
     element.getAttribute?.("aria-label"),
     element.getAttribute?.("title")
   ];
