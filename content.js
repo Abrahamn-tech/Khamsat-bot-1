@@ -197,7 +197,6 @@ function getScrollingElement() {
 }
 
 async function performMicroScroll() {
-  if (!masterToggleEnabled) return;
   await waitForVisibility();
   const scrollingElement = getScrollingElement();
   if (!scrollingElement) return;
@@ -231,7 +230,6 @@ async function sleepWithMicroScroll(durationMs) {
     MICRO_SCROLL_INTERVAL_MAX_MS
   );
   while (true) {
-    if (!masterToggleEnabled) return;
     await waitForVisibility();
     const elapsed = getVisibleElapsedMs() - startVisible;
     if (elapsed >= durationMs) return;
@@ -593,7 +591,6 @@ async function recordSuccessfulTaskForFatigue() {
 }
 
 async function enforceFatigueBreakIfNeeded() {
-  if (!masterToggleEnabled) return true;
   const state = await getFatigueState();
   if (state.breakUntil && Date.now() < state.breakUntil) {
     const remaining = state.breakUntil - Date.now();
@@ -603,7 +600,7 @@ async function enforceFatigueBreakIfNeeded() {
     if (refreshed.breakUntil && Date.now() >= refreshed.breakUntil) {
       await setFatigueState({ ...refreshed, breakUntil: 0 });
     }
-    if (!masterToggleEnabled) return true;
+    if (!masterToggleEnabled) return false;
     await recordMasterRefresh();
     window.location.reload();
     return true;
@@ -615,9 +612,6 @@ async function enforceFatigueBreakIfNeeded() {
 }
 
 function isWebhookConfigured() {
-  if (typeof WEBHOOK_URL !== "string" || typeof WEBHOOK_CHAT_ID !== "string") {
-    return false;
-  }
   const url = WEBHOOK_URL.trim();
   const chatId = WEBHOOK_CHAT_ID.trim();
   if (!url || !chatId) return false;
@@ -952,10 +946,10 @@ async function scrollElementIntoViewportIfNeeded(element, timeoutMs = MAX_WAIT_M
 }
 
 async function simulateHumanClick(element) {
+  if (!masterToggleEnabled) return;
   if (!element) {
     throw new Error("Cannot simulate click: element is null or undefined.");
   }
-  if (!masterToggleEnabled) return;
   await waitForVisibility();
   const wasVisible = isElementFullyInViewport(element);
   await scrollElementIntoViewportIfNeeded(element);
@@ -1038,7 +1032,6 @@ async function typeLikeHuman(element, text) {
   dispatchInputEvent(element, null, "deleteContentBackward");
 
   for (const ch of text) {
-    if (!masterToggleEnabled) return;
     await waitForVisibility();
     const delay = randInt(TYPING_DELAY_MIN_MS, TYPING_DELAY_MAX_MS);
     const makeTypo = Math.random() < TYPO_CHANCE_PER_CHAR;
@@ -1121,6 +1114,7 @@ async function handleMasterPage() {
   for (const link of links) {
     const id = getRequestIdFromLink(link);
     if (!skipSet.has(id)) {
+      if (!masterToggleEnabled) return;
       await sleepWithMicroScroll(randInt(2000, 4000));
       await waitForVisibility();
       if (!masterToggleEnabled) return;
