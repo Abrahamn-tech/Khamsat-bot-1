@@ -152,9 +152,14 @@ toggleEl.addEventListener("change", async () => {
 });
 
 refreshSnapshot();
-setInterval(() => {
+const uptimeInterval = setInterval(() => {
   if (latestSnapshot) {
     renderSnapshot(latestSnapshot);
   }
 }, 1000);
-setInterval(refreshSnapshot, 5000);
+const snapshotInterval = setInterval(refreshSnapshot, 5000);
+
+window.addEventListener("unload", () => {
+  clearInterval(uptimeInterval);
+  clearInterval(snapshotInterval);
+});

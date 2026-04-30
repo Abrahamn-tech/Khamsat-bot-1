@@ -3,6 +3,12 @@
 // =============================
 const WEBHOOK_URL = "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/sendMessage";
 const WEBHOOK_CHAT_ID = "<YOUR_CHAT_ID>";
+const WEBHOOK_PLACEHOLDERS = [
+  "<YOUR_BOT_TOKEN>",
+  "YOUR_BOT_TOKEN",
+  "<YOUR_CHAT_ID>",
+  "YOUR_CHAT_ID"
+];
 
 // Base URL for master page (fallback)
 const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
@@ -404,7 +410,7 @@ async function getHistoryMap() {
 function pruneHistoryMap(history, maxDays = 45) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - maxDays);
-  for (const [key] of Object.entries(history)) {
+  for (const key of Object.keys(history)) {
     const parsed = new Date(`${key}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
       delete history[key];
@@ -615,16 +621,10 @@ function isWebhookConfigured() {
   const url = WEBHOOK_URL.trim();
   const chatId = WEBHOOK_CHAT_ID.trim();
   if (!url || !chatId) return false;
-  const placeholders = [
-    "<YOUR_BOT_TOKEN>",
-    "YOUR_BOT_TOKEN",
-    "<YOUR_CHAT_ID>",
-    "YOUR_CHAT_ID"
-  ];
-  if (placeholders.some((placeholder) => url.includes(placeholder))) {
+  if (WEBHOOK_PLACEHOLDERS.some((placeholder) => url.includes(placeholder))) {
     return false;
   }
-  if (placeholders.some((placeholder) => chatId.includes(placeholder))) {
+  if (WEBHOOK_PLACEHOLDERS.some((placeholder) => chatId.includes(placeholder))) {
     return false;
   }
   try {
