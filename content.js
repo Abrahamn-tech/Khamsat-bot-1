@@ -64,6 +64,9 @@ const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
 const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
 const API_BACKOFF_MIN_MS = 2 * 60 * 1000;
 const API_BACKOFF_MAX_MS = 4 * 60 * 1000;
+const DRAFT_PROBE_MIN_LENGTH = 40;
+const DRAFT_PROBE_MAX_LENGTH = 120;
+const AZURE_API_ERROR_PATTERN = /azure|openai|rate limit|too many requests|429/i;
 
 // =============================
 // Utilities
@@ -510,24 +513,22 @@ function normalizeTextForMatch(text) {
 function getDraftProbeText(draft) {
   const normalized = normalizeTextForMatch(draft);
   if (!normalized) return "";
-  const minLen = 40;
-  const maxLen = 120;
   const targetLen = Math.min(
-    maxLen,
-    Math.max(minLen, Math.floor(normalized.length * 0.5))
+    DRAFT_PROBE_MAX_LENGTH,
+    Math.max(DRAFT_PROBE_MIN_LENGTH, Math.floor(normalized.length * 0.5))
   );
   return normalized.slice(0, targetLen);
 }
 
-function getPageTextExcludingTextareas() {
+function getPageTextExcludingTextareas(textareas = null) {
   const body = document.body;
   if (!body) return "";
   let text = body.innerText || "";
-  const textareas = Array.from(body.querySelectorAll("textarea"));
-  for (const area of textareas) {
+  const areas = textareas || Array.from(body.querySelectorAll("textarea"));
+  for (const area of areas) {
     const value = area?.value?.trim();
     if (value) {
-      text = text.replace(value, " ");
+      text = text.split(value).join(" ");
     }
   }
   return text;
@@ -536,6 +537,7 @@ function getPageTextExcludingTextareas() {
 async function waitForDraftInjection(draft, timeoutMs = MAX_WAIT_MS) {
   const startVisible = getVisibleElapsedMs();
   const probe = getDraftProbeText(draft);
+  const textareas = Array.from(document.querySelectorAll("textarea"));
   if (!probe) {
     throw new Error("Draft verification failed: empty draft probe.");
   }
@@ -546,7 +548,9 @@ async function waitForDraftInjection(draft, timeoutMs = MAX_WAIT_MS) {
         requestAnimationFrame(check);
         return;
       }
-      const pageText = normalizeTextForMatch(getPageTextExcludingTextareas());
+      const pageText = normalizeTextForMatch(
+        getPageTextExcludingTextareas(textareas)
+      );
       if (pageText.includes(probe)) return resolve(true);
       if (getVisibleElapsedMs() - startVisible > timeoutMs) {
         return reject(
@@ -561,7 +565,7 @@ async function waitForDraftInjection(draft, timeoutMs = MAX_WAIT_MS) {
 
 function isAzureApiError(err) {
   const message = `${err?.message || err || ""}`;
-  return /azure|openai|rate limit|too many requests|429/i.test(message);
+  return AZURE_API_ERROR_PATTERN.test(message);
 }
 
 async function enforceApiCooldownIfNeeded(err) {
