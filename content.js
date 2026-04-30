@@ -21,10 +21,9 @@ const SELECTOR_REQUEST_LINKS = "table.listing_table td.details-head a.ajaxbtn";
 const SELECTOR_REQUEST_TEXT = "article.forum_post, div.card-body";
 const SELECTOR_ADD_REPLY =
   "a.c-button.c-button--primary[href='#add_comment']";
-const SELECTOR_TEXTAREA = "#commentable_form textarea[name='comment']";
+const SELECTOR_TEXTAREA = "form#commentable_form textarea[name='comment']";
 const SELECTOR_CHECKBOX = "input#confirm[name='confirm'][type='checkbox']";
-const SELECTOR_SUBMIT =
-  "button#commentable_submit.c-button.c-button--primary[type='submit']";
+const SELECTOR_SUBMIT = "button#commentable_submit[type='submit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
 // Arabic fallback labels when CSS selectors fail for critical actions.
@@ -43,6 +42,18 @@ const FALLBACK_SUBMIT_TEXTS = [
   "إرسال الرد",
   "ارسل",
   "ارسال الرد"
+];
+const FALLBACK_TEMPLATES = [
+  "السلام عليكم، لقد اطلعت على تفاصيل طلبك بعناية، وأنا على أتم الاستعداد لتنفيذ المطلوب باحترافية عالية. يسعدني تواصلك لمناقشة التفاصيل.",
+  "أهلاً بك، بعد مراجعة المطلوب، يمكنني إنجاز هذا العمل بدقة وجودة تامة. تفضل بمراسلتي للبدء فوراً، أو يمكنك الاطلاع على خدماتي.",
+  "مرحباً، طلبك يقع تماماً ضمن مجال خبرتي. جاهز لتقديم العمل بالشكل الذي يرضيك. بانتظار تواصلك للاتفاق على التفاصيل.",
+  "السلام عليكم ورحمة الله، قرأت ما تحتاجه وأستطيع تنفيذه بكفاءة وفي الوقت المحدد. يسعدني جداً العمل معك، تفضل بالتواصل.",
+  "تحياتي لك، أنا مستعد للبدء في تنفيذ طلبك فوراً وتقديم نتيجة احترافية. يمكنك مراسلتي لمزيد من الاستفسارات أو تصفح خدماتي.",
+  "أهلاً بك أخي الكريم، أمتلك الخبرة اللازمة لإنجاز هذا المشروع على أكمل وجه. يسعدني تواصلك معي للبدء في التنفيذ.",
+  "السلام عليكم، لقد فهمت المطلوب جيداً، ومستعد لتقديم خدمة تليق بتطلعاتك. تفضل بالتواصل معي لتحديد نقطة البداية.",
+  "مرحباً بك، طلبك واضح تماماً بالنسبة لي، وسأكون سعيداً بتنفيذه لك بأعلى جودة ممكنة. بانتظار رسالتك لمناقشة العمل.",
+  "تحياتي، أضع خبرتي بين يديك لإنجاز هذا العمل باحترافية. يمكنك تفقد تقييماتي وخدماتي، ويسعدني تواصلك للبدء.",
+  "السلام عليكم، مستعد لتنفيذ طلبك بدقة واهتمام كبير بالتفاصيل. لا تتردد في مراسلتي، فأنا جاهز للعمل من الآن."
 ];
 const REQUEST_CONTAINER_SELECTORS = [
   ".requests-list",
@@ -69,6 +80,9 @@ const STORAGE_SESSION_START = "telemetrySessionStart";
 const STORAGE_REFRESH_COUNT = "telemetryRefreshCount";
 const STORAGE_APPLIED_COUNT = "telemetryAppliedCount";
 const STORAGE_HISTORY = "telemetryHistoryByDate";
+const STORAGE_FALLBACK_DECK = "fallbackTemplateDeck";
+const STORAGE_FALLBACK_DECK_INDEX = "fallbackTemplateDeckIndex";
+const STORAGE_FALLBACK_LAST_INDEX = "fallbackTemplateLastIndex";
 
 // Timing
 const MAX_WAIT_MS = 10000;
@@ -495,6 +509,89 @@ async function clearCachedDraft(requestId) {
   if (!Object.prototype.hasOwnProperty.call(cache, requestId)) return;
   const { [requestId]: _removedDraft, ...rest } = cache;
   await setDraftCache(rest);
+}
+
+function cryptoRandomInt(maxExclusive) {
+  const max = Number(maxExclusive);
+  if (!Number.isFinite(max) || max <= 0) return 0;
+  const cryptoSource = window.crypto || window.msCrypto;
+  if (!cryptoSource?.getRandomValues) {
+    return Math.floor(Math.random() * max);
+  }
+  const maxUint32 = 0xffffffff;
+  const limit = Math.floor(maxUint32 / max) * max;
+  const buffer = new Uint32Array(1);
+  let value = 0;
+  do {
+    cryptoSource.getRandomValues(buffer);
+    value = buffer[0];
+  } while (value >= limit);
+  return value % max;
+}
+
+function buildFallbackDeck(avoidIndex) {
+  const deck = Array.from(
+    { length: FALLBACK_TEMPLATES.length },
+    (_value, index) => index
+  );
+  for (let i = deck.length - 1; i > 0; i -= 1) {
+    const j = cryptoRandomInt(i + 1);
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  if (
+    Number.isFinite(avoidIndex) &&
+    deck.length > 1 &&
+    deck[0] === avoidIndex
+  ) {
+    [deck[0], deck[1]] = [deck[1], deck[0]];
+  }
+  return deck;
+}
+
+function isValidFallbackDeck(deck) {
+  if (!Array.isArray(deck) || deck.length !== FALLBACK_TEMPLATES.length) {
+    return false;
+  }
+  return deck.every(
+    (value) =>
+      Number.isInteger(value) &&
+      value >= 0 &&
+      value < FALLBACK_TEMPLATES.length
+  );
+}
+
+async function getNextFallbackTemplate() {
+  if (!FALLBACK_TEMPLATES.length) return "";
+  const data = await chrome.storage.local.get([
+    STORAGE_FALLBACK_DECK,
+    STORAGE_FALLBACK_DECK_INDEX,
+    STORAGE_FALLBACK_LAST_INDEX
+  ]);
+  let deck = data[STORAGE_FALLBACK_DECK];
+  let position = Number.isFinite(data[STORAGE_FALLBACK_DECK_INDEX])
+    ? data[STORAGE_FALLBACK_DECK_INDEX]
+    : 0;
+  const lastIndex = Number.isFinite(data[STORAGE_FALLBACK_LAST_INDEX])
+    ? data[STORAGE_FALLBACK_LAST_INDEX]
+    : null;
+
+  if (!isValidFallbackDeck(deck)) {
+    deck = [];
+    position = 0;
+  }
+  if (!deck.length || position >= deck.length) {
+    deck = buildFallbackDeck(lastIndex);
+    position = 0;
+  }
+
+  const templateIndex = deck[position];
+  position += 1;
+  await chrome.storage.local.set({
+    [STORAGE_FALLBACK_DECK]: deck,
+    [STORAGE_FALLBACK_DECK_INDEX]: position,
+    [STORAGE_FALLBACK_LAST_INDEX]: templateIndex
+  });
+  return FALLBACK_TEMPLATES[templateIndex] || "";
 }
 
 async function getFailureStreak() {
@@ -1173,9 +1270,13 @@ async function handleDetailPage() {
       });
 
       if (!response?.ok || !response?.draft) {
-        throw new Error(`Azure API failed: ${response?.error || "no draft"}`);
+        draft = await getNextFallbackTemplate();
+        if (!draft) {
+          throw new Error(`Azure API failed: ${response?.error || "no draft"}`);
+        }
+      } else {
+        draft = response.draft;
       }
-      draft = response.draft;
       await cacheDraft(requestId, draft);
     }
 
