@@ -17,6 +17,23 @@ const SELECTOR_CHECKBOX = "input[type='checkbox'].terms";
 const SELECTOR_SUBMIT = "button[type='submit'], .submit";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
+// Arabic fallback labels when CSS selectors fail for critical actions.
+const FALLBACK_ADD_REPLY_TEXTS = [
+  "أضف تعليق",
+  "اضف تعليق",
+  "إضافة تعليق",
+  "أضف رد",
+  "اضف رد",
+  "إضافة رد"
+];
+const FALLBACK_SUBMIT_TEXTS = [
+  "أرسل",
+  "ارسال",
+  "إرسال",
+  "إرسال الرد",
+  "ارسل",
+  "ارسال الرد"
+];
 const REQUEST_CONTAINER_SELECTORS = [
   ".requests-list",
   ".topic-list",
@@ -36,6 +53,7 @@ const STORAGE_FAILED = "failedRequestIds";
 const STORAGE_FATIGUE_STATE = "fatigueState";
 const STORAGE_FAILURE_STREAK = "consecutiveFailureCount";
 const STORAGE_KILL_SWITCH = "killSwitchActive";
+const STORAGE_DRAFT_CACHE = "draftCacheByRequestId";
 
 // Timing
 const MAX_WAIT_MS = 10000;
@@ -302,6 +320,44 @@ async function addToStorageList(key, id) {
   }
 }
 
+async function getDraftCache() {
+  const data = await chrome.storage.local.get([STORAGE_DRAFT_CACHE]);
+  const stored = data[STORAGE_DRAFT_CACHE];
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+    return stored;
+  }
+  const empty = {};
+  await chrome.storage.local.set({ [STORAGE_DRAFT_CACHE]: empty });
+  return empty;
+}
+
+async function setDraftCache(cache) {
+  await chrome.storage.local.set({ [STORAGE_DRAFT_CACHE]: cache });
+}
+
+async function getCachedDraft(requestId) {
+  if (!requestId) return null;
+  const cache = await getDraftCache();
+  return cache[requestId] || null;
+}
+
+async function cacheDraft(requestId, draft) {
+  if (!requestId || typeof draft !== "string" || !draft.trim()) return;
+  const cache = await getDraftCache();
+  if (cache[requestId] === draft) {
+    return;
+  }
+  await setDraftCache({ ...cache, [requestId]: draft });
+}
+
+async function clearCachedDraft(requestId) {
+  if (!requestId) return;
+  const cache = await getDraftCache();
+  if (!Object.prototype.hasOwnProperty.call(cache, requestId)) return;
+  const { [requestId]: _removedDraft, ...rest } = cache;
+  await setDraftCache(rest);
+}
+
 async function getFailureStreak() {
   const data = await chrome.storage.local.get([STORAGE_FAILURE_STREAK]);
   const stored = Number.isFinite(data[STORAGE_FAILURE_STREAK])
@@ -451,7 +507,94 @@ async function waitForElement(selector, timeoutMs = MAX_WAIT_MS) {
       const el = document.querySelector(selector);
       if (el) return resolve(el);
       if (getVisibleElapsedMs() - startVisible > timeoutMs) {
-        return reject(new Error(`Timeout waiting for element: ${selector}`));
+        return reject(new Error(getTimeoutErrorMessage(selector)));
+      }
+      requestAnimationFrame(check);
+    };
+    check();
+  });
+}
+
+function getTimeoutErrorMessage(selector) {
+  return `Timeout waiting for element: ${selector}`;
+}
+
+function isElementVisibleNow(element) {
+  if (!element) return false;
+  const rect = element.getBoundingClientRect();
+  if (!rect.width || !rect.height) return false;
+  const style = window.getComputedStyle(element);
+  if (!style) return false;
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  const opacity = parseFloat(style.opacity);
+  if (Number.isFinite(opacity) && opacity === 0) return false;
+  return true;
+}
+
+function getFallbackCandidateText(element) {
+  if (!element) return "";
+  // Prefer visible text labels to match user-facing content.
+  const text =
+    element.innerText?.trim() || element.textContent?.trim() || "";
+  const value =
+    element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      ? element.value
+      : "";
+  const parts = [
+    text,
+    value,
+    element.getAttribute?.("aria-label"),
+    element.getAttribute?.("title")
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+function findActionElementByTextNow(fallbackTexts) {
+  if (!fallbackTexts?.length) return null;
+  const normalizedFallbacks = fallbackTexts
+    .map((text) => normalizeTextForMatch(text))
+    .filter(Boolean);
+  if (!normalizedFallbacks.length) return null;
+  const selector = [
+    "button",
+    "a",
+    "input[type='submit']",
+    "input[type='button']",
+    "[role='button']",
+    "[role='link']"
+  ].join(",");
+  const nodes = Array.from(document.querySelectorAll(selector));
+  for (const node of nodes) {
+    if (!isElementVisibleNow(node)) continue;
+    if (node.disabled) continue;
+    const text = normalizeTextForMatch(getFallbackCandidateText(node));
+    if (!text) continue;
+    if (normalizedFallbacks.some((fallback) => text.includes(fallback))) {
+      return node;
+    }
+  }
+  return null;
+}
+
+async function waitForElementWithFallback(
+  selector,
+  fallbackTexts,
+  timeoutMs = MAX_WAIT_MS
+) {
+  const startVisible = getVisibleElapsedMs();
+  return new Promise((resolve, reject) => {
+    const check = async () => {
+      if (!isPageVisible) {
+        await waitForVisibility();
+        requestAnimationFrame(check);
+        return;
+      }
+      const el = document.querySelector(selector);
+      if (el) return resolve(el);
+      const fallback = findActionElementByTextNow(fallbackTexts);
+      if (fallback) return resolve(fallback);
+      if (getVisibleElapsedMs() - startVisible > timeoutMs) {
+        return reject(new Error(getTimeoutErrorMessage(selector)));
       }
       requestAnimationFrame(check);
     };
@@ -776,6 +919,20 @@ async function failAndReturn(err, requestId) {
   window.location.href = MASTER_PAGE_URL;
 }
 
+function isAddReplyTimeoutError(err) {
+  const message = `${err?.message || err || ""}`;
+  return message.includes(getTimeoutErrorMessage(SELECTOR_ADD_REPLY));
+}
+
+async function handleClosedRequest(requestId) {
+  if (requestId) {
+    await addToStorageList(STORAGE_PROCESSED, requestId);
+  }
+  await recordSuccessfulTaskForFatigue();
+  await resetFailureStreak();
+  window.location.href = MASTER_PAGE_URL;
+}
+
 // =============================
 // Master Page Logic
 // =============================
@@ -822,26 +979,41 @@ async function handleDetailPage() {
 
     await sleep(randInt(READING_DELAY_MIN_MS, READING_DELAY_MAX_MS));
 
-    await waitForVisibility();
-    const response = await chrome.runtime.sendMessage({
-      type: "GENERATE_DRAFT",
-      payload: { text: requestText }
-    });
+    let draft = await getCachedDraft(requestId);
+    if (!draft) {
+      await waitForVisibility();
+      const response = await chrome.runtime.sendMessage({
+        type: "GENERATE_DRAFT",
+        payload: { text: requestText }
+      });
 
-    if (!response?.ok || !response?.draft) {
-      throw new Error(`Azure API failed: ${response?.error || "no draft"}`);
+      if (!response?.ok || !response?.draft) {
+        throw new Error(`Azure API failed: ${response?.error || "no draft"}`);
+      }
+      draft = response.draft;
+      await cacheDraft(requestId, draft);
     }
 
-    const addReplyButton = await waitForElement(
-      SELECTOR_ADD_REPLY,
-      MAX_WAIT_MS
-    );
+    let addReplyButton;
+    try {
+      addReplyButton = await waitForElementWithFallback(
+        SELECTOR_ADD_REPLY,
+        FALLBACK_ADD_REPLY_TEXTS,
+        MAX_WAIT_MS
+      );
+    } catch (err) {
+      if (isAddReplyTimeoutError(err)) {
+        await handleClosedRequest(requestId);
+        return;
+      }
+      throw err;
+    }
     await waitForVisibility();
     await simulateHumanClick(addReplyButton);
     await sleep(randInt(UI_SHIFT_DELAY_MIN_MS, UI_SHIFT_DELAY_MAX_MS));
 
     const textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
-    await typeLikeHuman(textarea, response.draft);
+    await typeLikeHuman(textarea, draft);
 
     await sleep(randInt(1500, 3000));
     const checkbox = await waitForElement(SELECTOR_CHECKBOX, MAX_WAIT_MS);
@@ -853,11 +1025,16 @@ async function handleDetailPage() {
     }
 
     await sleep(randInt(1000, 2500));
-    const submitBtn = await waitForElement(SELECTOR_SUBMIT, MAX_WAIT_MS);
+    const submitBtn = await waitForElementWithFallback(
+      SELECTOR_SUBMIT,
+      FALLBACK_SUBMIT_TEXTS,
+      MAX_WAIT_MS
+    );
     await waitForVisibility();
     await simulateHumanClick(submitBtn);
 
-    await waitForDraftInjection(response.draft, MAX_WAIT_MS);
+    await waitForDraftInjection(draft, MAX_WAIT_MS);
+    await clearCachedDraft(requestId);
     await addToStorageList(STORAGE_PROCESSED, requestId);
     await recordSuccessfulTaskForFatigue();
     await resetFailureStreak();
