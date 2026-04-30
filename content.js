@@ -62,6 +62,11 @@ const MICRO_SCROLL_MAX_PX = 18;
 const MICRO_SCROLL_EDGE_BUFFER_PX = 6;
 const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
 const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
+const API_BACKOFF_MIN_MS = 2 * 60 * 1000;
+const API_BACKOFF_MAX_MS = 4 * 60 * 1000;
+const DRAFT_PROBE_MIN_LENGTH = 40;
+const DRAFT_PROBE_MAX_LENGTH = 120;
+const AZURE_API_ERROR_PATTERN = /azure|openai|rate limit|too many requests|429/i;
 
 // =============================
 // Utilities
@@ -501,6 +506,84 @@ function cleanRequestText(raw) {
     .trim();
 }
 
+function normalizeTextForMatch(text) {
+  return (text || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getDraftProbeText(draft) {
+  const normalized = normalizeTextForMatch(draft);
+  if (!normalized) return "";
+  const targetLen = Math.min(
+    DRAFT_PROBE_MAX_LENGTH,
+    Math.max(DRAFT_PROBE_MIN_LENGTH, Math.floor(normalized.length * 0.5))
+  );
+  return normalized.slice(0, targetLen);
+}
+
+function getPageTextExcludingTextareas(textareas = null) {
+  const body = document.body;
+  if (!body) return "";
+  let text = body.innerText || "";
+  const areas = textareas || Array.from(body.querySelectorAll("textarea"));
+  for (const area of areas) {
+    const value = area?.value?.trim();
+    if (value) {
+      text = text.replaceAll(value, " ");
+    }
+  }
+  return text;
+}
+
+async function waitForDraftInjection(draft, timeoutMs = MAX_WAIT_MS) {
+  const startVisible = getVisibleElapsedMs();
+  const probe = getDraftProbeText(draft);
+  const textareas = Array.from(document.querySelectorAll("textarea"));
+  if (!probe) {
+    throw new Error(
+      "Draft verification failed: draft content is empty after normalization."
+    );
+  }
+  return new Promise((resolve, reject) => {
+    const check = async () => {
+      if (!isPageVisible) {
+        await waitForVisibility();
+        requestAnimationFrame(check);
+        return;
+      }
+      const pageText = normalizeTextForMatch(
+        getPageTextExcludingTextareas(textareas)
+      );
+      if (pageText.includes(probe)) return resolve(true);
+      if (getVisibleElapsedMs() - startVisible > timeoutMs) {
+        return reject(
+          new Error(
+            `Timeout waiting for draft to appear in the DOM after ${timeoutMs}ms.`
+          )
+        );
+      }
+      requestAnimationFrame(check);
+    };
+    check();
+  });
+}
+
+function isAzureApiError(err) {
+  const message = `${err?.message || err || ""}`;
+  return AZURE_API_ERROR_PATTERN.test(message);
+}
+
+async function enforceApiCooldownIfNeeded(err) {
+  if (!isAzureApiError(err)) return false;
+  const cooldownMs = randInt(API_BACKOFF_MIN_MS, API_BACKOFF_MAX_MS);
+  console.warn(
+    `Azure API issue detected. Enforcing cooldown for ${Math.round(
+      cooldownMs / 1000
+    )}s before returning to the master page.`
+  );
+  await sleep(cooldownMs);
+  return true;
+}
+
 // =============================
 // Emulated Pointer Trajectory
 // =============================
@@ -763,20 +846,25 @@ async function handleDetailPage() {
     await sleep(randInt(1500, 3000));
     const checkbox = await waitForElement(SELECTOR_CHECKBOX, MAX_WAIT_MS);
     await waitForVisibility();
-    await simulateHumanClick(checkbox);
+    const checkboxChecked =
+      checkbox.checked || checkbox.getAttribute("aria-checked") === "true";
+    if (!checkboxChecked) {
+      await simulateHumanClick(checkbox);
+    }
 
     await sleep(randInt(1000, 2500));
     const submitBtn = await waitForElement(SELECTOR_SUBMIT, MAX_WAIT_MS);
     await waitForVisibility();
     await simulateHumanClick(submitBtn);
 
-    await waitForElement(SELECTOR_SUCCESS, MAX_WAIT_MS);
+    await waitForDraftInjection(response.draft, MAX_WAIT_MS);
     await addToStorageList(STORAGE_PROCESSED, requestId);
     await recordSuccessfulTaskForFatigue();
     await resetFailureStreak();
 
     window.location.href = MASTER_PAGE_URL;
   } catch (err) {
+    await enforceApiCooldownIfNeeded(err);
     await failAndReturn(err, requestId);
   }
 }
