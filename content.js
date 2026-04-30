@@ -56,6 +56,7 @@ const FALLBACK_TEMPLATES = [
   "السلام عليكم، مستعد لتنفيذ طلبك بدقة واهتمام كبير بالتفاصيل. لا تتردد في مراسلتي، فأنا جاهز للعمل من الآن."
 ];
 const REQUEST_CONTAINER_SELECTORS = [
+  "table.listing_table",
   ".requests-list",
   ".topic-list",
   ".topics-list",
