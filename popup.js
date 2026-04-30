@@ -165,8 +165,3 @@ const clearIntervals = () => {
 };
 
 window.addEventListener("pagehide", clearIntervals);
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    clearIntervals();
-  }
-});

@@ -409,7 +409,7 @@ function pruneHistoryMap(history, maxDays = 45) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - maxDays);
   for (const key of Object.keys(history)) {
-    const parsed = new Date(`${key}T00:00:00Z`);
+    const parsed = new Date(`${key}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
       delete history[key];
       continue;
@@ -1236,13 +1236,13 @@ function detectWarnings() {
 // Bootstrap
 // =============================
 window.addEventListener("load", async () => {
-  botRunning = true;
   await loadMasterToggleState();
   if (!masterToggleEnabled) {
     console.info("Master toggle disabled. Automation paused.");
     botRunning = false;
     return;
   }
+  botRunning = true;
   await setSessionStartIfNeeded();
   if (await runPreFlightSecurityCheck()) {
     console.error("Security challenge detected. Halting all operations.");
