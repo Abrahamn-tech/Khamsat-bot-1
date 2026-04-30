@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Personal Productivity Assistant",
+  "version": "1.0.0",
+  "description": "Automates request handling with Azure OpenAI and smart page interactions.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": [
+    "https://*.khamsat.com/*",
+    "https://YOUR_AZURE_RESOURCE_NAME.openai.azure.com/*",
+    "https://api.telegram.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.khamsat.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
