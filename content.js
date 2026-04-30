@@ -322,7 +322,7 @@ async function addToStorageList(key, id) {
 async function getDraftCache() {
   const data = await chrome.storage.local.get([STORAGE_DRAFT_CACHE]);
   const stored = data[STORAGE_DRAFT_CACHE];
-  if (stored && typeof stored === "object") {
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
     return stored;
   }
   if (stored !== undefined) {
@@ -344,7 +344,14 @@ async function getCachedDraft(requestId) {
 async function cacheDraft(requestId, draft) {
   if (!requestId || !draft) return;
   const cache = await getDraftCache();
-  if (cache[requestId] === draft) return;
+  const existing = cache[requestId];
+  if (
+    typeof existing === "string" &&
+    typeof draft === "string" &&
+    existing === draft
+  ) {
+    return;
+  }
   await setDraftCache({ ...cache, [requestId]: draft });
 }
 
@@ -505,12 +512,16 @@ async function waitForElement(selector, timeoutMs = MAX_WAIT_MS) {
       const el = document.querySelector(selector);
       if (el) return resolve(el);
       if (getVisibleElapsedMs() - startVisible > timeoutMs) {
-        return reject(new Error(`Timeout waiting for element: ${selector}`));
+        return reject(new Error(getTimeoutErrorMessage(selector)));
       }
       requestAnimationFrame(check);
     };
     check();
   });
+}
+
+function getTimeoutErrorMessage(selector) {
+  return `Timeout waiting for element: ${selector}`;
 }
 
 function isElementVisibleNow(element) {
@@ -526,9 +537,10 @@ function isElementVisibleNow(element) {
 
 function getFallbackCandidateText(element) {
   if (!element) return "";
+  const inner = element.innerText?.trim();
   const parts = [
-    element.innerText,
-    element.textContent,
+    inner,
+    inner ? "" : element.textContent,
     element.value,
     element.getAttribute?.("aria-label"),
     element.getAttribute?.("title")
@@ -581,7 +593,7 @@ async function waitForElementWithFallback(
       const fallback = findActionElementByTextNow(fallbackTexts);
       if (fallback) return resolve(fallback);
       if (getVisibleElapsedMs() - startVisible > timeoutMs) {
-        return reject(new Error(`Timeout waiting for element: ${selector}`));
+        return reject(new Error(getTimeoutErrorMessage(selector)));
       }
       requestAnimationFrame(check);
     };
@@ -908,7 +920,7 @@ async function failAndReturn(err, requestId) {
 
 function isAddReplyTimeoutError(err) {
   const message = `${err?.message || err || ""}`;
-  return message.includes(`Timeout waiting for element: ${SELECTOR_ADD_REPLY}`);
+  return message.includes(getTimeoutErrorMessage(SELECTOR_ADD_REPLY));
 }
 
 async function handleClosedRequest(requestId) {
