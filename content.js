@@ -322,7 +322,12 @@ async function addToStorageList(key, id) {
 async function getDraftCache() {
   const data = await chrome.storage.local.get([STORAGE_DRAFT_CACHE]);
   const stored = data[STORAGE_DRAFT_CACHE];
-  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+  if (
+    stored &&
+    stored !== null &&
+    typeof stored === "object" &&
+    !Array.isArray(stored)
+  ) {
     return stored;
   }
   if (stored !== undefined) {
@@ -531,16 +536,17 @@ function isElementVisibleNow(element) {
   const style = window.getComputedStyle(element);
   if (!style) return false;
   if (style.display === "none" || style.visibility === "hidden") return false;
-  if (Number(style.opacity) === 0) return false;
+  const opacity = parseFloat(style.opacity);
+  if (Number.isFinite(opacity) && opacity === 0) return false;
   return true;
 }
 
 function getFallbackCandidateText(element) {
   if (!element) return "";
-  const inner = element.innerText?.trim();
+  const text =
+    element.innerText?.trim() || element.textContent?.trim() || "";
   const parts = [
-    inner,
-    inner ? "" : element.textContent,
+    text,
     element.value,
     element.getAttribute?.("aria-label"),
     element.getAttribute?.("title")
