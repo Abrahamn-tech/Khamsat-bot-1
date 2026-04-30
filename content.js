@@ -57,6 +57,11 @@ const FATIGUE_TASKS_MAX = 5;
 const FATIGUE_BREAK_MIN_MS = 8 * 60 * 1000;
 const FATIGUE_BREAK_MAX_MS = 15 * 60 * 1000;
 const MAX_CONSECUTIVE_FAILURES = 3;
+const MICRO_SCROLL_MIN_PX = 4;
+const MICRO_SCROLL_MAX_PX = 18;
+const MICRO_SCROLL_EDGE_BUFFER_PX = 6;
+const MICRO_SCROLL_INTERVAL_MIN_MS = 250;
+const MICRO_SCROLL_INTERVAL_MAX_MS = 900;
 
 // =============================
 // Utilities
@@ -67,6 +72,15 @@ let totalVisibleMs = 0;
 const visibleWaiters = new Set();
 const hiddenWaiters = new Set();
 let killSwitchActive = false;
+const SECURITY_CHALLENGE_SIGNATURES = [
+  { label: "Cloudflare", pattern: /cloudflare/i },
+  { label: "Captcha", pattern: /captcha/i },
+  { label: "Are you human", pattern: /are you human/i },
+  { label: "Access denied", pattern: /access denied/i },
+  { label: "Attention required", pattern: /attention required/i },
+  { label: "Verify you are human", pattern: /verify you are human/i },
+  { label: "Robot check", pattern: /robot check/i }
+];
 
 function handleVisibilityChange() {
   if (document.hidden) {
@@ -125,8 +139,86 @@ async function sleep(ms) {
   }
 }
 
+function getScrollingElement() {
+  return document.scrollingElement || document.documentElement;
+}
+
+async function performMicroScroll() {
+  await waitForVisibility();
+  const scrollingElement = getScrollingElement();
+  if (!scrollingElement) return;
+  const maxScrollTop =
+    scrollingElement.scrollHeight - scrollingElement.clientHeight;
+  if (maxScrollTop <= 0) return;
+  const currentTop = scrollingElement.scrollTop;
+  let delta = randInt(MICRO_SCROLL_MIN_PX, MICRO_SCROLL_MAX_PX);
+  if (Math.random() < 0.5) delta *= -1;
+  if (currentTop <= MICRO_SCROLL_EDGE_BUFFER_PX) {
+    delta = Math.abs(delta);
+  } else if (currentTop >= maxScrollTop - MICRO_SCROLL_EDGE_BUFFER_PX) {
+    delta = -Math.abs(delta);
+  }
+  const targetTop = Math.max(0, Math.min(maxScrollTop, currentTop + delta));
+  if (targetTop === currentTop) return;
+  window.dispatchEvent(
+    new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: delta
+    })
+  );
+  scrollingElement.scrollTop = targetTop;
+}
+
+async function sleepWithMicroScroll(durationMs) {
+  const startVisible = getVisibleElapsedMs();
+  let nextScrollAt = randInt(
+    MICRO_SCROLL_INTERVAL_MIN_MS,
+    MICRO_SCROLL_INTERVAL_MAX_MS
+  );
+  while (true) {
+    await waitForVisibility();
+    const elapsed = getVisibleElapsedMs() - startVisible;
+    if (elapsed >= durationMs) return;
+    if (elapsed >= nextScrollAt) {
+      await performMicroScroll();
+      nextScrollAt =
+        elapsed +
+        randInt(MICRO_SCROLL_INTERVAL_MIN_MS, MICRO_SCROLL_INTERVAL_MAX_MS);
+    }
+    const remaining = durationMs - elapsed;
+    const untilNext = Math.max(0, nextScrollAt - elapsed);
+    const slice = Math.min(
+      remaining,
+      Math.max(80, Math.min(400, untilNext))
+    );
+    await sleep(slice);
+  }
+}
+
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function detectSecurityChallengeSignature() {
+  const title = document.title || "";
+  const bodyText =
+    document.body?.innerText || document.body?.textContent || "";
+  const haystack = `${title}\n${bodyText}`;
+  if (!haystack.trim()) return null;
+  const match = SECURITY_CHALLENGE_SIGNATURES.find(({ pattern }) =>
+    pattern.test(haystack)
+  );
+  return match?.label || null;
+}
+
+async function runPreFlightSecurityCheck() {
+  const signature = detectSecurityChallengeSignature();
+  if (!signature) return false;
+  await engageKillSwitch(
+    `Pre-flight security challenge detected (${signature}). Halting automation.`
+  );
+  return true;
 }
 
 function findRequestListContainerNow() {
@@ -526,10 +618,40 @@ function dispatchInputEvent(element, data, inputType) {
   );
 }
 
+function getNativeValueSetter(element) {
+  if (element instanceof HTMLTextAreaElement) {
+    return Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value"
+    )?.set;
+  }
+  if (element instanceof HTMLInputElement) {
+    return Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set;
+  }
+  return Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(element),
+    "value"
+  )?.set;
+}
+
+function setNativeValue(element, value, setter) {
+  const nativeSetter = setter || getNativeValueSetter(element);
+  if (nativeSetter) {
+    nativeSetter.call(element, value);
+    return;
+  }
+  element.value = value;
+}
+
 async function typeLikeHuman(element, text) {
   await waitForVisibility();
   element.focus();
-  element.value = "";
+  const nativeSetter = getNativeValueSetter(element);
+  let currentValue = "";
+  setNativeValue(element, currentValue, nativeSetter);
   dispatchInputEvent(element, null, "deleteContentBackward");
 
   for (const ch of text) {
@@ -539,16 +661,19 @@ async function typeLikeHuman(element, text) {
 
     if (makeTypo) {
       const typo = randomTypoCharFor(ch);
-      element.value += typo;
+      currentValue += typo;
+      setNativeValue(element, currentValue, nativeSetter);
       dispatchInputEvent(element, typo, "insertText");
       await sleep(TYPO_PAUSE_MS);
 
-      element.value = element.value.slice(0, -1);
+      currentValue = currentValue.slice(0, -1);
+      setNativeValue(element, currentValue, nativeSetter);
       dispatchInputEvent(element, null, "deleteContentBackward");
       await sleep(CORRECTION_PAUSE_MS);
     }
 
-    element.value += ch;
+    currentValue += ch;
+    setNativeValue(element, currentValue, nativeSetter);
     dispatchInputEvent(element, ch, "insertText");
     await sleep(delay);
   }
@@ -590,7 +715,7 @@ async function handleMasterPage() {
   for (const link of links) {
     const id = getRequestIdFromLink(link);
     if (!skipSet.has(id)) {
-      await sleep(randInt(2000, 4000));
+      await sleepWithMicroScroll(randInt(2000, 4000));
       await waitForVisibility();
       await simulateHumanClick(link);
       return;
@@ -671,6 +796,10 @@ function detectWarnings() {
 // Bootstrap
 // =============================
 window.addEventListener("load", async () => {
+  if (await runPreFlightSecurityCheck()) {
+    console.error("Security challenge detected. Halting all operations.");
+    return;
+  }
   detectWarnings();
 
   if (await loadKillSwitchState()) {
