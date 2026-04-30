@@ -4,11 +4,14 @@
 const WEBHOOK_URL = "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/sendMessage";
 const WEBHOOK_CHAT_ID = "<YOUR_CHAT_ID>";
 const WEBHOOK_PLACEHOLDERS = [
-  "<your_bot_token>",
-  "your_bot_token",
-  "<your_chat_id>",
-  "your_chat_id"
+  "<YOUR_BOT_TOKEN>",
+  "YOUR_BOT_TOKEN",
+  "<YOUR_CHAT_ID>",
+  "YOUR_CHAT_ID"
 ];
+const WEBHOOK_PLACEHOLDERS_LOWER = WEBHOOK_PLACEHOLDERS.map((value) =>
+  value.toLowerCase()
+);
 
 // Base URL for master page (fallback)
 const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
@@ -409,7 +412,12 @@ function pruneHistoryMap(history, maxDays = 45) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - maxDays);
   for (const key of Object.keys(history)) {
-    const parsed = new Date(`${key}T00:00:00`);
+    const [year, month, day] = key.split("-").map(Number);
+    if (!year || !month || !day) {
+      delete history[key];
+      continue;
+    }
+    const parsed = new Date(year, month - 1, day);
     if (Number.isNaN(parsed.getTime())) {
       delete history[key];
       continue;
@@ -617,10 +625,18 @@ function isWebhookConfigured() {
   if (!url || !chatId) return false;
   const urlLower = url.toLowerCase();
   const chatLower = chatId.toLowerCase();
-  if (WEBHOOK_PLACEHOLDERS.some((placeholder) => urlLower.includes(placeholder))) {
+  if (
+    WEBHOOK_PLACEHOLDERS_LOWER.some((placeholder) =>
+      urlLower.includes(placeholder)
+    )
+  ) {
     return false;
   }
-  if (WEBHOOK_PLACEHOLDERS.some((placeholder) => chatLower.includes(placeholder))) {
+  if (
+    WEBHOOK_PLACEHOLDERS_LOWER.some((placeholder) =>
+      chatLower.includes(placeholder)
+    )
+  ) {
     return false;
   }
   try {
@@ -1260,9 +1276,7 @@ window.addEventListener("load", async () => {
   if (isMasterPage()) {
     await handleMasterPage();
     return;
-  }
-
-  if (isDetailPage()) {
+  } else if (isDetailPage()) {
     await handleDetailPage();
     return;
   }

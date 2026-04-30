@@ -102,6 +102,17 @@ function sumHistory(history, days) {
   return total;
 }
 
+function renderUptime(snapshot) {
+  if (!snapshot) return;
+  const uptimeMs =
+    snapshot.masterToggleEnabled && snapshot.sessionStartAt > 0
+      ? Date.now() - snapshot.sessionStartAt
+      : 0;
+  uptimeEl.textContent = snapshot.masterToggleEnabled
+    ? formatDuration(uptimeMs)
+    : "Paused";
+}
+
 function renderSnapshot(snapshot) {
   if (!snapshot) return;
   updatingToggle = true;
@@ -111,13 +122,7 @@ function renderSnapshot(snapshot) {
   statusEl.textContent = snapshot.masterToggleEnabled ? "Active" : "Paused";
   statusEl.classList.toggle("off", !snapshot.masterToggleEnabled);
 
-  const uptimeMs =
-    snapshot.masterToggleEnabled && snapshot.sessionStartAt > 0
-      ? Date.now() - snapshot.sessionStartAt
-      : 0;
-  uptimeEl.textContent = snapshot.masterToggleEnabled
-    ? formatDuration(uptimeMs)
-    : "Paused";
+  renderUptime(snapshot);
 
   refreshEl.textContent = snapshot.refreshCount.toString();
   jobsEl.textContent = snapshot.jobsApplied.toString();
@@ -154,7 +159,7 @@ toggleEl.addEventListener("change", async () => {
 refreshSnapshot();
 const uptimeInterval = setInterval(() => {
   if (latestSnapshot) {
-    renderSnapshot(latestSnapshot);
+    renderUptime(latestSnapshot);
   }
 }, 1000);
 const snapshotInterval = setInterval(refreshSnapshot, 5000);
