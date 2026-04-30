@@ -354,7 +354,7 @@ async function clearCachedDraft(requestId) {
   if (!requestId) return;
   const cache = await getDraftCache();
   if (!Object.prototype.hasOwnProperty.call(cache, requestId)) return;
-  const { [requestId]: removedDraft, ...rest } = cache;
+  const { [requestId]: _removedDraft, ...rest } = cache;
   await setDraftCache(rest);
 }
 
@@ -533,7 +533,7 @@ function isElementVisibleNow(element) {
 
 function getFallbackCandidateText(element) {
   if (!element) return "";
-  // Prefer visible labels to match user-facing text.
+  // Prefer visible text labels to match user-facing content.
   const text =
     element.innerText?.trim() || element.textContent?.trim() || "";
   const value =
