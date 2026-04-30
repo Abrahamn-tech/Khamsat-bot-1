@@ -528,7 +528,7 @@ function getPageTextExcludingTextareas(textareas = null) {
   for (const area of areas) {
     const value = area?.value?.trim();
     if (value) {
-      text = text.split(value).join(" ");
+      text = text.replaceAll(value, " ");
     }
   }
   return text;
@@ -539,7 +539,9 @@ async function waitForDraftInjection(draft, timeoutMs = MAX_WAIT_MS) {
   const probe = getDraftProbeText(draft);
   const textareas = Array.from(document.querySelectorAll("textarea"));
   if (!probe) {
-    throw new Error("Draft verification failed: empty draft probe.");
+    throw new Error(
+      "Draft verification failed: draft content is empty after normalization."
+    );
   }
   return new Promise((resolve, reject) => {
     const check = async () => {
@@ -554,7 +556,9 @@ async function waitForDraftInjection(draft, timeoutMs = MAX_WAIT_MS) {
       if (pageText.includes(probe)) return resolve(true);
       if (getVisibleElapsedMs() - startVisible > timeoutMs) {
         return reject(
-          new Error("Timeout waiting for draft to appear in the DOM.")
+          new Error(
+            `Timeout waiting for draft to appear in the DOM after ${timeoutMs}ms.`
+          )
         );
       }
       requestAnimationFrame(check);
@@ -571,7 +575,11 @@ function isAzureApiError(err) {
 async function enforceApiCooldownIfNeeded(err) {
   if (!isAzureApiError(err)) return false;
   const cooldownMs = randInt(API_BACKOFF_MIN_MS, API_BACKOFF_MAX_MS);
-  console.warn(`API cooldown engaged for ${Math.round(cooldownMs / 1000)}s.`);
+  console.warn(
+    `Azure API issue detected. Enforcing cooldown for ${Math.round(
+      cooldownMs / 1000
+    )}s before returning to the master page.`
+  );
   await sleep(cooldownMs);
   return true;
 }
