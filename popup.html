@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Khamsat Bot Dashboard</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      body {
+        margin: 0;
+        width: 330px;
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        background: #0f1115;
+        color: #e6e6e6;
+      }
+
+      .container {
+        padding: 16px;
+      }
+
+      h1 {
+        font-size: 16px;
+        margin: 0 0 12px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+
+      .card {
+        background: #161a22;
+        border: 1px solid #222836;
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 12px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .label {
+        font-size: 12px;
+        color: #9aa4b2;
+      }
+
+      .value {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .status {
+        margin-top: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #233a2c;
+        color: #7ee787;
+      }
+
+      .status.off {
+        background: #3a2830;
+        color: #f47067;
+      }
+
+      .toggle {
+        position: relative;
+        width: 46px;
+        height: 24px;
+      }
+
+      .toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #3a3f4b;
+        transition: 0.2s;
+        border-radius: 999px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background: #ffffff;
+        transition: 0.2s;
+        border-radius: 50%;
+      }
+
+      .toggle input:checked + .slider {
+        background: #1f8f4a;
+      }
+
+      .toggle input:checked + .slider:before {
+        transform: translateX(22px);
+      }
+
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .metric {
+        background: #11151c;
+        border: 1px solid #1f2533;
+        border-radius: 10px;
+        padding: 8px;
+      }
+
+      .metric .label {
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Khamsat Bot Ops</h1>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="label">Master Control</div>
+            <div id="status-text" class="status">Active</div>
+          </div>
+          <label class="toggle" aria-label="Master toggle">
+            <input id="master-toggle" type="checkbox" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <div class="label">Session Uptime</div>
+          <div id="uptime-value" class="value">0m</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="label">Cycle Metrics</div>
+        <div class="metrics-grid">
+          <div class="metric">
+            <div class="label">Master Refreshes</div>
+            <div id="refresh-count" class="value">0</div>
+          </div>
+          <div class="metric">
+            <div class="label">Jobs Applied</div>
+            <div id="jobs-count" class="value">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="label">Historical Rates</div>
+        <div class="metrics-grid">
+          <div class="metric">
+            <div class="label">Daily</div>
+            <div id="daily-rate" class="value">0</div>
+          </div>
+          <div class="metric">
+            <div class="label">Weekly</div>
+            <div id="weekly-rate" class="value">0</div>
+          </div>
+          <div class="metric">
+            <div class="label">Monthly</div>
+            <div id="monthly-rate" class="value">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -3,6 +3,15 @@
 // =============================
 const WEBHOOK_URL = "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/sendMessage";
 const WEBHOOK_CHAT_ID = "<YOUR_CHAT_ID>";
+const WEBHOOK_PLACEHOLDERS = [
+  "<YOUR_BOT_TOKEN>",
+  "YOUR_BOT_TOKEN",
+  "<YOUR_CHAT_ID>",
+  "YOUR_CHAT_ID"
+];
+const WEBHOOK_PLACEHOLDERS_LOWER = WEBHOOK_PLACEHOLDERS.map((value) =>
+  value.toLowerCase()
+);
 
 // Base URL for master page (fallback)
 const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
@@ -54,6 +63,11 @@ const STORAGE_FATIGUE_STATE = "fatigueState";
 const STORAGE_FAILURE_STREAK = "consecutiveFailureCount";
 const STORAGE_KILL_SWITCH = "killSwitchActive";
 const STORAGE_DRAFT_CACHE = "draftCacheByRequestId";
+const STORAGE_MASTER_TOGGLE = "masterToggleEnabled";
+const STORAGE_SESSION_START = "telemetrySessionStart";
+const STORAGE_REFRESH_COUNT = "telemetryRefreshCount";
+const STORAGE_APPLIED_COUNT = "telemetryAppliedCount";
+const STORAGE_HISTORY = "telemetryHistoryByDate";
 
 // Timing
 const MAX_WAIT_MS = 10000;
@@ -95,6 +109,8 @@ let totalVisibleMs = 0;
 const visibleWaiters = new Set();
 const hiddenWaiters = new Set();
 let killSwitchActive = false;
+let masterToggleEnabled = true;
+let botRunning = false;
 const SECURITY_CHALLENGE_SIGNATURES = [
   { label: "Cloudflare", pattern: /cloudflare/i },
   { label: "Captcha", pattern: /captcha/i },
@@ -128,6 +144,23 @@ function handleVisibilityChange() {
 }
 
 document.addEventListener("visibilitychange", handleVisibilityChange);
+
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== "local") return;
+  if (!Object.prototype.hasOwnProperty.call(changes, STORAGE_MASTER_TOGGLE)) {
+    return;
+  }
+  masterToggleEnabled = !!changes[STORAGE_MASTER_TOGGLE].newValue;
+  if (!masterToggleEnabled) {
+    botRunning = false;
+    await clearSessionStart();
+    return;
+  }
+  await setSessionStartIfNeeded();
+  if (!botRunning) {
+    window.location.reload();
+  }
+});
 
 function waitForVisibility() {
   if (isPageVisible) return Promise.resolve();
@@ -320,6 +353,111 @@ async function addToStorageList(key, id) {
   }
 }
 
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function loadMasterToggleState() {
+  const data = await chrome.storage.local.get([STORAGE_MASTER_TOGGLE]);
+  const stored = data[STORAGE_MASTER_TOGGLE];
+  if (typeof stored === "boolean") {
+    masterToggleEnabled = stored;
+    return masterToggleEnabled;
+  }
+  masterToggleEnabled = true;
+  await chrome.storage.local.set({ [STORAGE_MASTER_TOGGLE]: true });
+  return masterToggleEnabled;
+}
+
+async function setSessionStartIfNeeded() {
+  if (!masterToggleEnabled) return;
+  const data = await chrome.storage.local.get([STORAGE_SESSION_START]);
+  const stored = data[STORAGE_SESSION_START];
+  if (Number.isFinite(stored) && stored > 0) return;
+  await chrome.storage.local.set({ [STORAGE_SESSION_START]: Date.now() });
+}
+
+async function clearSessionStart() {
+  await chrome.storage.local.set({ [STORAGE_SESSION_START]: 0 });
+}
+
+async function getNumericStorageValue(key) {
+  const data = await chrome.storage.local.get([key]);
+  const stored = data[key];
+  return Number.isFinite(stored) ? stored : 0;
+}
+
+async function incrementNumericStorageValue(key, delta = 1) {
+  const current = await getNumericStorageValue(key);
+  const nextValue = current + delta;
+  await chrome.storage.local.set({ [key]: nextValue });
+  return nextValue;
+}
+
+async function getHistoryMap() {
+  const data = await chrome.storage.local.get([STORAGE_HISTORY]);
+  const stored = data[STORAGE_HISTORY];
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+    return { ...stored };
+  }
+  const empty = {};
+  await chrome.storage.local.set({ [STORAGE_HISTORY]: empty });
+  return empty;
+}
+
+function pruneHistoryMap(history, maxDays = 45) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - maxDays);
+  for (const key of Object.keys(history)) {
+    const [year, month, day] = key.split("-").map(Number);
+    if (!year || !month || !day) {
+      delete history[key];
+      continue;
+    }
+    const parsed = new Date(year, month - 1, day);
+    if (Number.isNaN(parsed.getTime())) {
+      delete history[key];
+      continue;
+    }
+    if (parsed < cutoff) {
+      delete history[key];
+    }
+  }
+  return history;
+}
+
+async function incrementJobHistory(delta = 1) {
+  const history = await getHistoryMap();
+  const key = getLocalDateKey();
+  const current = Number.isFinite(history[key]) ? history[key] : 0;
+  history[key] = current + delta;
+  await chrome.storage.local.set({
+    [STORAGE_HISTORY]: pruneHistoryMap(history)
+  });
+}
+
+async function recordMasterRefresh() {
+  if (!masterToggleEnabled) return;
+  try {
+    await incrementNumericStorageValue(STORAGE_REFRESH_COUNT, 1);
+  } catch (err) {
+    console.warn("Telemetry refresh update failed:", err);
+  }
+}
+
+async function recordJobApplied() {
+  if (!masterToggleEnabled) return;
+  try {
+    await incrementNumericStorageValue(STORAGE_APPLIED_COUNT, 1);
+    await incrementJobHistory(1);
+  } catch (err) {
+    console.warn("Telemetry job update failed:", err);
+  }
+}
+
 async function getDraftCache() {
   const data = await chrome.storage.local.get([STORAGE_DRAFT_CACHE]);
   const stored = data[STORAGE_DRAFT_CACHE];
@@ -470,6 +608,8 @@ async function enforceFatigueBreakIfNeeded() {
     if (refreshed.breakUntil && Date.now() >= refreshed.breakUntil) {
       await setFatigueState({ ...refreshed, breakUntil: 0 });
     }
+    if (!masterToggleEnabled) return false;
+    await recordMasterRefresh();
     window.location.reload();
     return true;
   }
@@ -479,8 +619,36 @@ async function enforceFatigueBreakIfNeeded() {
   return false;
 }
 
+function isWebhookConfigured() {
+  const url = WEBHOOK_URL.trim();
+  const chatId = WEBHOOK_CHAT_ID.trim();
+  if (!url || !chatId) return false;
+  const urlLower = url.toLowerCase();
+  const chatLower = chatId.toLowerCase();
+  if (
+    WEBHOOK_PLACEHOLDERS_LOWER.some((placeholder) =>
+      urlLower.includes(placeholder)
+    )
+  ) {
+    return false;
+  }
+  if (
+    WEBHOOK_PLACEHOLDERS_LOWER.some((placeholder) =>
+      chatLower.includes(placeholder)
+    )
+  ) {
+    return false;
+  }
+  try {
+    new URL(url);
+  } catch {
+    return false;
+  }
+  return true;
+}
 
 async function safeWebhookNotify(message) {
+  if (!isWebhookConfigured()) return;
   try {
     await fetch(WEBHOOK_URL, {
       method: "POST",
@@ -796,6 +964,7 @@ async function scrollElementIntoViewportIfNeeded(element, timeoutMs = MAX_WAIT_M
 }
 
 async function simulateHumanClick(element) {
+  if (!masterToggleEnabled) return;
   if (!element) {
     throw new Error("Cannot simulate click: element is null or undefined.");
   }
@@ -916,6 +1085,8 @@ async function failAndReturn(err, requestId) {
   }
   await recordFailureAndMaybeKill();
   if (killSwitchActive) return;
+  if (!masterToggleEnabled) return;
+  await recordMasterRefresh();
   window.location.href = MASTER_PAGE_URL;
 }
 
@@ -930,6 +1101,8 @@ async function handleClosedRequest(requestId) {
   }
   await recordSuccessfulTaskForFatigue();
   await resetFailureStreak();
+  if (!masterToggleEnabled) return;
+  await recordMasterRefresh();
   window.location.href = MASTER_PAGE_URL;
 }
 
@@ -938,12 +1111,16 @@ async function handleClosedRequest(requestId) {
 // =============================
 async function handleMasterPage() {
   await waitForVisibility();
+  if (!masterToggleEnabled) return;
   if (await enforceFatigueBreakIfNeeded()) return;
   await waitForVisibility();
+  if (!masterToggleEnabled) return;
   const container = await waitForRequestListContainer(MAX_WAIT_MS);
   if (!container) {
     await sleep(randInt(POLLING_INTERVAL_MIN_MS, POLLING_INTERVAL_MAX_MS));
     await waitForVisibility();
+    if (!masterToggleEnabled) return;
+    await recordMasterRefresh();
     window.location.reload();
     return;
   }
@@ -955,8 +1132,10 @@ async function handleMasterPage() {
   for (const link of links) {
     const id = getRequestIdFromLink(link);
     if (!skipSet.has(id)) {
+      if (!masterToggleEnabled) return;
       await sleepWithMicroScroll(randInt(2000, 4000));
       await waitForVisibility();
+      if (!masterToggleEnabled) return;
       await simulateHumanClick(link);
       return;
     }
@@ -964,6 +1143,8 @@ async function handleMasterPage() {
 
   await sleep(randInt(POLLING_INTERVAL_MIN_MS, POLLING_INTERVAL_MAX_MS));
   await waitForVisibility();
+  if (!masterToggleEnabled) return;
+  await recordMasterRefresh();
   window.location.reload();
 }
 
@@ -972,16 +1153,19 @@ async function handleMasterPage() {
 // =============================
 async function handleDetailPage() {
   const requestId = getCurrentRequestId();
+  if (!masterToggleEnabled) return;
 
   try {
     const rawText = await waitForTextInDOM(SELECTOR_REQUEST_TEXT, MAX_WAIT_MS);
     const requestText = cleanRequestText(rawText);
 
     await sleep(randInt(READING_DELAY_MIN_MS, READING_DELAY_MAX_MS));
+    if (!masterToggleEnabled) return;
 
     let draft = await getCachedDraft(requestId);
     if (!draft) {
       await waitForVisibility();
+      if (!masterToggleEnabled) return;
       const response = await chrome.runtime.sendMessage({
         type: "GENERATE_DRAFT",
         payload: { text: requestText }
@@ -1009,15 +1193,18 @@ async function handleDetailPage() {
       throw err;
     }
     await waitForVisibility();
+    if (!masterToggleEnabled) return;
     await simulateHumanClick(addReplyButton);
     await sleep(randInt(UI_SHIFT_DELAY_MIN_MS, UI_SHIFT_DELAY_MAX_MS));
 
     const textarea = await waitForElement(SELECTOR_TEXTAREA, MAX_WAIT_MS);
+    if (!masterToggleEnabled) return;
     await typeLikeHuman(textarea, draft);
 
     await sleep(randInt(1500, 3000));
     const checkbox = await waitForElement(SELECTOR_CHECKBOX, MAX_WAIT_MS);
     await waitForVisibility();
+    if (!masterToggleEnabled) return;
     const checkboxChecked =
       checkbox.checked || checkbox.getAttribute("aria-checked") === "true";
     if (!checkboxChecked) {
@@ -1031,14 +1218,18 @@ async function handleDetailPage() {
       MAX_WAIT_MS
     );
     await waitForVisibility();
+    if (!masterToggleEnabled) return;
     await simulateHumanClick(submitBtn);
 
     await waitForDraftInjection(draft, MAX_WAIT_MS);
     await clearCachedDraft(requestId);
     await addToStorageList(STORAGE_PROCESSED, requestId);
+    await recordJobApplied();
     await recordSuccessfulTaskForFatigue();
     await resetFailureStreak();
 
+    if (!masterToggleEnabled) return;
+    await recordMasterRefresh();
     window.location.href = MASTER_PAGE_URL;
   } catch (err) {
     await enforceApiCooldownIfNeeded(err);
@@ -1061,23 +1252,33 @@ function detectWarnings() {
 // Bootstrap
 // =============================
 window.addEventListener("load", async () => {
+  await loadMasterToggleState();
+  if (!masterToggleEnabled) {
+    console.info("Master toggle disabled. Automation paused.");
+    botRunning = false;
+    return;
+  }
+  botRunning = true;
+  await setSessionStartIfNeeded();
   if (await runPreFlightSecurityCheck()) {
     console.error("Security challenge detected. Halting all operations.");
+    botRunning = false;
     return;
   }
   detectWarnings();
 
   if (await loadKillSwitchState()) {
     console.error("Kill switch active. Halting all operations.");
+    botRunning = false;
     return;
   }
 
   if (isMasterPage()) {
     await handleMasterPage();
     return;
-  }
-
-  if (isDetailPage()) {
+  } else if (isDetailPage()) {
     await handleDetailPage();
+    return;
   }
+  botRunning = false;
 });
