@@ -17,12 +17,13 @@ const WEBHOOK_PLACEHOLDERS_LOWER = WEBHOOK_PLACEHOLDERS.map((value) =>
 const MASTER_PAGE_URL = "https://khamsat.com/community/requests";
 
 // Selectors (update as needed)
-const SELECTOR_REQUEST_LINKS = "table.listing_table td.details-head a.ajaxbtn";
-const SELECTOR_REQUEST_TEXT = "article.forum_post, div.card-body";
+const SELECTOR_REQUEST_LINKS =
+  "table.listing_table .details-head a.ajaxbtn, #forum_requests a.ajaxbtn";
+const SELECTOR_REQUEST_TEXT = ".forum_post .card-body, .forum_post article, .text-content";
 const SELECTOR_ADD_REPLY =
-  "a.c-button.c-button--primary[href='#add_comment']";
-const SELECTOR_TEXTAREA = "form#commentable_form textarea[name='comment']";
-const SELECTOR_CHECKBOX = "input#confirm[name='confirm'][type='checkbox']";
+  "a[href='#add_comment'].c-button--primary, button[data-action='add-reply']";
+const SELECTOR_TEXTAREA = "#commentable_form textarea, textarea[name='comment']";
+const SELECTOR_CHECKBOX = "input#confirm[type='checkbox']";
 const SELECTOR_SUBMIT = "button#commentable_submit[type='submit']";
 const SELECTOR_SUCCESS = ".alert-success, .success-message, .notice-success";
 const SELECTOR_WARNING = ".alert.alert-danger, .warning, .error";
@@ -56,6 +57,7 @@ const FALLBACK_TEMPLATES = [
   "السلام عليكم، مستعد لتنفيذ طلبك بدقة واهتمام كبير بالتفاصيل. لا تتردد في مراسلتي، فأنا جاهز للعمل من الآن."
 ];
 const REQUEST_CONTAINER_SELECTORS = [
+  ".listing_table",
   "table.listing_table",
   ".requests-list",
   ".topic-list",
